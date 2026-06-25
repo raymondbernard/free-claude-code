@@ -9,7 +9,6 @@ from typing import Any
 
 from core.anthropic.streaming import (
     AnthropicStreamLedger,
-    parse_complete_tool_input,
     tool_schemas_by_name,
 )
 
@@ -70,7 +69,7 @@ def has_committed_sse_output(ledger: AnthropicStreamLedger) -> bool:
     return (
         ledger.blocks.text_index != -1
         or ledger.blocks.thinking_index != -1
-        or ledger.blocks.has_emitted_tool_block()
+        or ledger.has_emitted_tool_block()
     )
 
 
@@ -83,17 +82,9 @@ def started_tool_states(ledger: AnthropicStreamLedger) -> list[tuple[int, Any]]:
     ]
 
 
-def all_started_tools_complete(ledger: AnthropicStreamLedger, request: Any) -> bool:
+def all_emitted_tools_complete(ledger: AnthropicStreamLedger, request: Any) -> bool:
     """Return whether every emitted tool block has schema-valid input."""
-    schemas = tool_schemas_by_name(request)
-    started = started_tool_states(ledger)
-    if not started:
-        return False
-    for _, state in started:
-        raw = state.content
-        if parse_complete_tool_input(raw, state.name, schemas) is None:
-            return False
-    return True
+    return ledger.can_salvage_tool_use(tool_schemas_by_name(request))
 
 
 class OpenAIToolCallAssembler:

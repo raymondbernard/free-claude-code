@@ -177,6 +177,7 @@ class TestAnthropicStreamLedgerContentBlocks:
         assert data["content_block"]["id"] == "tool_123"
         assert data["content_block"]["name"] == "Read"
         assert data["content_block"]["input"] == {}
+        assert builder.has_emitted_tool_block()
 
     def test_content_block_start_tool_use_extra_content(self):
         builder = AnthropicStreamLedger("msg_1", "model")
@@ -589,6 +590,30 @@ class TestAnthropicStreamLedgerTokenEstimation:
         tool_args = '{"path":"test.py"}'
         builder.start_tool_block(0, "toolu_openai", tool_name)
         builder.emit_tool_delta(0, tool_args)
+
+        with patch("core.anthropic.streaming.ledger.ENCODER", _CharEncoder()):
+            tokens = builder.estimate_output_tokens()
+
+        assert tokens == len(tool_name) + len(tool_args) + 15 + 4
+
+    def test_estimate_ignores_unstarted_openai_tool_state(self):
+        builder = AnthropicStreamLedger("msg_1", "model")
+        state = builder.blocks.ensure_tool_state(0)
+        state.name = "Read"
+        state.parts.append('{"path":"test.py"}')
+
+        with patch("core.anthropic.streaming.ledger.ENCODER", _CharEncoder()):
+            tokens = builder.estimate_output_tokens()
+
+        assert tokens == 0
+
+    def test_estimate_heuristic_style_tool_content_block(self):
+        builder = AnthropicStreamLedger("msg_1", "model")
+        tool_name = "Read"
+        tool_args = '{"path":"test.py"}'
+        builder.content_block_start(0, "tool_use", id="toolu_heuristic", name=tool_name)
+        builder.content_block_delta(0, "input_json_delta", tool_args)
+        builder.content_block_stop(0)
 
         with patch("core.anthropic.streaming.ledger.ENCODER", _CharEncoder()):
             tokens = builder.estimate_output_tokens()

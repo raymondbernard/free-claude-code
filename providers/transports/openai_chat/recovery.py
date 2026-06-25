@@ -18,7 +18,7 @@ from core.anthropic.streaming import (
 )
 from core.trace import trace_event
 
-from .tool_calls import all_started_tools_complete, started_tool_states
+from .tool_calls import all_emitted_tools_complete, started_tool_states
 
 CreateStream = Callable[[dict[str, Any]], Awaitable[tuple[Any, dict[str, Any]]]]
 
@@ -84,8 +84,8 @@ class OpenAIChatRecovery:
         if not is_retryable_stream_error(error):
             return None
 
-        if ledger.blocks.has_emitted_tool_block():
-            if not all_started_tools_complete(ledger, request):
+        if ledger.has_emitted_tool_block():
+            if not all_emitted_tools_complete(ledger, request):
                 repair_events = await self._repair_tool_args(
                     body=body,
                     ledger=ledger,
@@ -148,7 +148,7 @@ class OpenAIChatRecovery:
     ) -> Iterator[str]:
         """Emit the canonical OpenAI-chat final error tail."""
         yield from ledger.close_all_blocks()
-        if ledger.blocks.has_emitted_tool_block():
+        if ledger.has_emitted_tool_block():
             yield ledger.emit_top_level_error(error_message)
         else:
             yield from ledger.emit_error(error_message)
@@ -216,6 +216,6 @@ class OpenAIChatRecovery:
             )
             if to_emit:
                 events.append(ledger.emit_tool_delta(tool_index, to_emit))
-        if not all_started_tools_complete(ledger, request):
+        if not all_emitted_tools_complete(ledger, request):
             return None
         return events

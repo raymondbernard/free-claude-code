@@ -138,9 +138,6 @@ class StreamBlockLedger:
         state.task_arg_buffer = ""
         return args_json
 
-    def has_emitted_tool_block(self) -> bool:
-        return any(state.started for state in self.tool_states.values())
-
     def flush_task_arg_buffers(self) -> list[tuple[int, str]]:
         results: list[tuple[int, str]] = []
         for tool_index, state in list(self.tool_states.items()):
@@ -537,6 +534,9 @@ class AnthropicStreamLedger:
             if block.block_type == "tool_use"
         ]
 
+    def has_emitted_tool_block(self) -> bool:
+        return bool(self.tool_blocks())
+
     def has_content_block(self) -> bool:
         return bool(self._content_blocks)
 
@@ -556,39 +556,28 @@ class AnthropicStreamLedger:
             text_tokens = len(ENCODER.encode(self.accumulated_text))
             reasoning_tokens = len(ENCODER.encode(self.accumulated_reasoning))
             tool_tokens = 0
-            started_tool_count = 0
-            for name, content, started in self._iter_tool_token_payloads():
+            tool_count = 0
+            for name, content in self._iter_tool_token_payloads():
                 tool_tokens += len(ENCODER.encode(name))
                 tool_tokens += len(ENCODER.encode(content))
                 tool_tokens += 15
-                if started:
-                    started_tool_count += 1
+                tool_count += 1
 
             block_count = (
                 (1 if self.accumulated_reasoning else 0)
                 + (1 if self.accumulated_text else 0)
-                + started_tool_count
+                + tool_count
             )
             return text_tokens + reasoning_tokens + tool_tokens + (block_count * 4)
 
         text_tokens = len(self.accumulated_text) // 4
         reasoning_tokens = len(self.accumulated_reasoning) // 4
-        tool_tokens = (
-            sum(1 for _, _, started in self._iter_tool_token_payloads() if started) * 50
-        )
+        tool_tokens = sum(1 for _ in self._iter_tool_token_payloads()) * 50
         return text_tokens + reasoning_tokens + tool_tokens
 
-    def _iter_tool_token_payloads(self) -> Iterator[tuple[str, str, bool]]:
-        counted_block_indexes: set[int] = set()
-        for state in self.blocks.tool_states.values():
-            if state.block_index >= 0:
-                counted_block_indexes.add(state.block_index)
-            yield state.name, state.content, state.started
-
+    def _iter_tool_token_payloads(self) -> Iterator[tuple[str, str]]:
         for block in self.tool_blocks():
-            if block.index in counted_block_indexes:
-                continue
-            yield block.name, block.content, True
+            yield block.name, block.content
 
     def _record_block_start(self, index: int, block: dict[str, Any]) -> None:
         self.blocks.reserve_index(index)

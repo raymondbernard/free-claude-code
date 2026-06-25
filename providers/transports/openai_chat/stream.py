@@ -27,7 +27,7 @@ from providers.error_mapping import map_error
 from .recovery import OpenAIChatRecovery
 from .tool_calls import (
     OpenAIToolCallAssembler,
-    all_started_tools_complete,
+    all_emitted_tools_complete,
     has_committed_sse_output,
     iter_heuristic_tool_use_sse,
     tool_call_extra_content,
@@ -216,8 +216,8 @@ class OpenAIChatStreamAdapter:
                     generated_output = has_committed_sse_output(ledger)
                     complete_tool_salvageable = (
                         generated_output
-                        and ledger.blocks.has_emitted_tool_block()
-                        and all_started_tools_complete(ledger, self._request)
+                        and ledger.has_emitted_tool_block()
+                        and all_emitted_tools_complete(ledger, self._request)
                     )
                     decision = recovery.advance_failure(
                         error,
@@ -314,14 +314,14 @@ class OpenAIChatStreamAdapter:
                 for out_event in hold_event(event):
                     yield out_event
 
-        has_started_tool = any(s.started for s in ledger.blocks.tool_states.values())
+        has_emitted_tool = ledger.has_emitted_tool_block()
         has_content_blocks = (
             ledger.blocks.text_index != -1
             or ledger.blocks.thinking_index != -1
-            or has_started_tool
+            or has_emitted_tool
         )
         if not has_content_blocks or (
-            not has_started_tool
+            not has_emitted_tool
             and not ledger.accumulated_text.strip()
             and ledger.accumulated_reasoning.strip()
         ):

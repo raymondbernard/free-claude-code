@@ -16,7 +16,11 @@ from core.anthropic.stream_contracts import (
 from providers.base import ProviderConfig
 from providers.nvidia_nim import NvidiaNimProvider
 from providers.transports.openai_chat.recovery import OpenAIChatRecovery
-from providers.transports.openai_chat.tool_calls import OpenAIToolCallAssembler
+from providers.transports.openai_chat.tool_calls import (
+    OpenAIToolCallAssembler,
+    has_committed_sse_output,
+    iter_heuristic_tool_use_sse,
+)
 from tests.provider_request_mocks import make_openai_compat_stream_request
 
 
@@ -636,6 +640,48 @@ class TestStreamingExceptionHandling:
         assert not any(event.event == "error" for event in parsed)
 
     @pytest.mark.asyncio
+    async def test_heuristic_only_tool_stream_does_not_emit_fallback_text(self):
+        """Text-parsed tool calls count as emitted tool output when finalizing."""
+        provider = _make_provider()
+        request = _make_request()
+        heuristic_tool = (
+            "● <function=Read><parameter=path>test.py</parameter>"
+            "<parameter=limit>10</parameter>"
+        )
+        stream_mock = AsyncStreamMock(
+            [
+                _make_chunk(content=heuristic_tool),
+                _make_chunk(finish_reason="tool_calls"),
+            ]
+        )
+
+        with patch.object(
+            provider._client.chat.completions,
+            "create",
+            new_callable=AsyncMock,
+            return_value=stream_mock,
+        ):
+            events = await _collect_stream(provider, request)
+
+        parsed = parse_sse_text("".join(events))
+        assert any(
+            event.event == "content_block_start"
+            and event.data.get("content_block", {}).get("type") == "tool_use"
+            for event in parsed
+        )
+        assert not any(
+            event.event == "content_block_delta"
+            and event.data.get("delta", {}).get("type") == "text_delta"
+            and event.data.get("delta", {}).get("text") == " "
+            for event in parsed
+        )
+        assert any(
+            event.event == "message_delta"
+            and event.data.get("delta", {}).get("stop_reason") == "tool_use"
+            for event in parsed
+        )
+
+    @pytest.mark.asyncio
     async def test_precommit_openai_holdback_retries_without_leaking_partial(self):
         """A retryable early cutoff before holdback commit is retried invisibly."""
         provider = _make_provider()
@@ -785,6 +831,27 @@ class TestStreamingExceptionHandling:
 
 class TestProcessToolCall:
     """Tests for OpenAI tool-call assembly."""
+
+    def test_heuristic_tool_use_sse_marks_committed_tool_output(self):
+        """Heuristic tool blocks are emitted content, even without OpenAI tool state."""
+        from core.anthropic import AnthropicStreamLedger
+
+        ledger = AnthropicStreamLedger("msg_test", "test-model")
+        events = list(
+            iter_heuristic_tool_use_sse(
+                ledger,
+                {
+                    "id": "toolu_heuristic",
+                    "name": "Read",
+                    "input": {"path": "test.py"},
+                },
+            )
+        )
+
+        event_text = "".join(events)
+        assert "tool_use" in event_text
+        assert ledger.has_emitted_tool_block()
+        assert has_committed_sse_output(ledger)
 
     def test_tool_call_with_id(self):
         """Tool call with id starts a tool block."""
