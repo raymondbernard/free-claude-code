@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from core.anthropic import AnthropicStreamLedger, StreamBlockLedger, map_stop_reason
-from core.anthropic.stream_contracts import parse_sse_text
+from core.anthropic.stream_contracts import SSEEvent, parse_sse_text
 from core.anthropic.streaming import ToolBlockState
 
 
@@ -16,6 +16,11 @@ def _parse_sse(sse_str: str) -> dict:
     if len(events) != 1:
         raise ValueError(f"expected 1 SSE event, got {len(events)} in {sse_str!r}")
     return events[0].data
+
+
+class _CharEncoder:
+    def encode(self, text: str) -> list[int]:
+        return [0] * len(text)
 
 
 class TestMapStopReason:
@@ -298,6 +303,110 @@ class TestAnthropicStreamLedgerHighLevelHelpers:
         data = _parse_sse(sse)
         assert data["type"] == "content_block_stop"
 
+    def test_text_suffix_after_closed_native_block_closes_once(self):
+        builder = AnthropicStreamLedger("msg_1", "model")
+        builder.ingest_native_event(
+            SSEEvent(
+                "content_block_start",
+                {
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {"type": "text", "text": ""},
+                },
+                "",
+            )
+        )
+        builder.ingest_native_event(
+            SSEEvent(
+                "content_block_delta",
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": "hello"},
+                },
+                "",
+            )
+        )
+        builder.ingest_native_event(
+            SSEEvent(
+                "content_block_stop",
+                {"type": "content_block_stop", "index": 0},
+                "",
+            )
+        )
+
+        events = list(builder.append_text_suffix(" world"))
+        events.extend(builder.success_tail("end_turn"))
+        parsed = parse_sse_text("".join(events))
+
+        assert [
+            event.data["index"]
+            for event in parsed
+            if event.event == "content_block_start"
+        ] == [1]
+        assert [
+            event.data["index"]
+            for event in parsed
+            if event.event == "content_block_delta"
+        ] == [1]
+        assert [
+            event.data["index"]
+            for event in parsed
+            if event.event == "content_block_stop"
+        ] == [1]
+
+    def test_thinking_suffix_after_closed_native_block_closes_once(self):
+        builder = AnthropicStreamLedger("msg_1", "model")
+        builder.ingest_native_event(
+            SSEEvent(
+                "content_block_start",
+                {
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {"type": "thinking", "thinking": ""},
+                },
+                "",
+            )
+        )
+        builder.ingest_native_event(
+            SSEEvent(
+                "content_block_delta",
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "thinking_delta", "thinking": "step one"},
+                },
+                "",
+            )
+        )
+        builder.ingest_native_event(
+            SSEEvent(
+                "content_block_stop",
+                {"type": "content_block_stop", "index": 0},
+                "",
+            )
+        )
+
+        events = list(builder.append_thinking_suffix(" step two"))
+        events.extend(builder.success_tail("end_turn"))
+        parsed = parse_sse_text("".join(events))
+
+        assert [
+            event.data["index"]
+            for event in parsed
+            if event.event == "content_block_start"
+        ] == [1]
+        assert [
+            event.data["index"]
+            for event in parsed
+            if event.event == "content_block_delta"
+        ] == [1]
+        assert [
+            event.data["index"]
+            for event in parsed
+            if event.event == "content_block_stop"
+        ] == [1]
+
 
 class TestAnthropicStreamLedgerStateManagement:
     """Tests for ensure_thinking_block, ensure_text_block, close_all_blocks."""
@@ -433,3 +542,55 @@ class TestAnthropicStreamLedgerTokenEstimation:
             tokens = builder.estimate_output_tokens()
             # 1 tool * 50 = 50
             assert tokens == 50
+
+    def test_estimate_counts_native_tool_payload(self):
+        builder = AnthropicStreamLedger("msg_1", "model")
+        tool_name = "Read"
+        tool_args = '{"path":"test.py"}'
+        builder.ingest_native_event(
+            SSEEvent(
+                "content_block_start",
+                {
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {
+                        "type": "tool_use",
+                        "id": "toolu_native",
+                        "name": tool_name,
+                        "input": {},
+                    },
+                },
+                "",
+            )
+        )
+        builder.ingest_native_event(
+            SSEEvent(
+                "content_block_delta",
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {
+                        "type": "input_json_delta",
+                        "partial_json": tool_args,
+                    },
+                },
+                "",
+            )
+        )
+
+        with patch("core.anthropic.streaming.ledger.ENCODER", _CharEncoder()):
+            tokens = builder.estimate_output_tokens()
+
+        assert tokens == len(tool_name) + len(tool_args) + 15 + 4
+
+    def test_estimate_does_not_double_count_openai_tool_content_block(self):
+        builder = AnthropicStreamLedger("msg_1", "model")
+        tool_name = "Read"
+        tool_args = '{"path":"test.py"}'
+        builder.start_tool_block(0, "toolu_openai", tool_name)
+        builder.emit_tool_delta(0, tool_args)
+
+        with patch("core.anthropic.streaming.ledger.ENCODER", _CharEncoder()):
+            tokens = builder.estimate_output_tokens()
+
+        assert tokens == len(tool_name) + len(tool_args) + 15 + 4

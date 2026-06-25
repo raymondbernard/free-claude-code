@@ -464,20 +464,9 @@ class AnthropicStreamLedger:
         active = self._last_open_block("text")
         if active is None:
             index = self.blocks.allocate_index()
-            active = StreamBlockState(index=index, block_type="text")
-            self._content_blocks[index] = active
-            self._open_stack.append(index)
             yield self.content_block_start(index, "text")
-        active.parts.append(suffix)
-        self._text_parts.append(suffix)
-        yield self._emitter.event(
-            "content_block_delta",
-            {
-                "type": "content_block_delta",
-                "index": active.index,
-                "delta": {"type": "text_delta", "text": suffix},
-            },
-        )
+            active = self._content_blocks[index]
+        yield self.content_block_delta(active.index, "text_delta", suffix)
 
     def append_thinking_suffix(self, suffix: str) -> Iterator[str]:
         if not suffix:
@@ -485,35 +474,16 @@ class AnthropicStreamLedger:
         active = self._last_open_block("thinking")
         if active is None:
             index = self.blocks.allocate_index()
-            active = StreamBlockState(index=index, block_type="thinking")
-            self._content_blocks[index] = active
-            self._open_stack.append(index)
             yield self.content_block_start(index, "thinking")
-        active.parts.append(suffix)
-        self._thinking_parts.append(suffix)
-        yield self._emitter.event(
-            "content_block_delta",
-            {
-                "type": "content_block_delta",
-                "index": active.index,
-                "delta": {"type": "thinking_delta", "thinking": suffix},
-            },
-        )
+            active = self._content_blocks[index]
+        yield self.content_block_delta(active.index, "thinking_delta", suffix)
 
     def append_tool_repair_suffix(self, tool_index: int, suffix: str) -> Iterator[str]:
         tool_blocks = self.tool_blocks()
         if tool_index >= len(tool_blocks) or not suffix:
             return
         block = tool_blocks[tool_index]
-        block.parts.append(suffix)
-        yield self._emitter.event(
-            "content_block_delta",
-            {
-                "type": "content_block_delta",
-                "index": block.index,
-                "delta": {"type": "input_json_delta", "partial_json": suffix},
-            },
-        )
+        yield self.content_block_delta(block.index, "input_json_delta", suffix)
 
     def success_tail(self, stop_reason: str) -> Iterator[str]:
         yield from self.close_unclosed_blocks()
@@ -587,11 +557,11 @@ class AnthropicStreamLedger:
             reasoning_tokens = len(ENCODER.encode(self.accumulated_reasoning))
             tool_tokens = 0
             started_tool_count = 0
-            for state in self.blocks.tool_states.values():
-                tool_tokens += len(ENCODER.encode(state.name))
-                tool_tokens += len(ENCODER.encode(state.content))
+            for name, content, started in self._iter_tool_token_payloads():
+                tool_tokens += len(ENCODER.encode(name))
+                tool_tokens += len(ENCODER.encode(content))
                 tool_tokens += 15
-                if state.started:
+                if started:
                     started_tool_count += 1
 
             block_count = (
@@ -604,9 +574,21 @@ class AnthropicStreamLedger:
         text_tokens = len(self.accumulated_text) // 4
         reasoning_tokens = len(self.accumulated_reasoning) // 4
         tool_tokens = (
-            sum(1 for state in self.blocks.tool_states.values() if state.started) * 50
+            sum(1 for _, _, started in self._iter_tool_token_payloads() if started) * 50
         )
         return text_tokens + reasoning_tokens + tool_tokens
+
+    def _iter_tool_token_payloads(self) -> Iterator[tuple[str, str, bool]]:
+        counted_block_indexes: set[int] = set()
+        for state in self.blocks.tool_states.values():
+            if state.block_index >= 0:
+                counted_block_indexes.add(state.block_index)
+            yield state.name, state.content, state.started
+
+        for block in self.tool_blocks():
+            if block.index in counted_block_indexes:
+                continue
+            yield block.name, block.content, True
 
     def _record_block_start(self, index: int, block: dict[str, Any]) -> None:
         self.blocks.reserve_index(index)
