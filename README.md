@@ -611,6 +611,14 @@ Run the local CI sequence (requires `uv` on PATH). The local scripts format
 Python files and apply autofixable Ruff lint fixes before type checking and
 tests:
 
+For a quick smoke check on Ubuntu/Linux, run:
+
+```bash
+./scripts/smoke-linux.sh
+```
+
+The repository also includes a GitHub Actions job that runs this smoke script on Ubuntu, so the Linux path is exercised automatically in CI.
+
 ```bash
 ./scripts/ci.sh
 ```
