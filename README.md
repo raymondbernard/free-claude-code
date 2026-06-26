@@ -11,6 +11,7 @@ Use Claude Code CLI, Codex CLI, their VS Code extensions, JetBrains ACP, or chat
 [![Type checking: Ty](https://img.shields.io/badge/type%20checking-ty-ffcc00.svg?style=for-the-badge)](https://pypi.org/project/ty/)
 [![Code style: Ruff](https://img.shields.io/badge/code%20formatting-ruff-f5a623.svg?style=for-the-badge)](https://github.com/astral-sh/ruff)
 [![Logging: Loguru](https://img.shields.io/badge/logging-loguru-4ecdc4.svg?style=for-the-badge)](https://github.com/Delgan/loguru)
+[![Linux smoke](https://img.shields.io/badge/Linux%20smoke-Ubuntu%20CI-2ea44f?style=for-the-badge)](.github/workflows/tests.yml)
 
 Free Claude Code routes Anthropic Messages API traffic from Claude Code (CLI and VS Code extension) and OpenAI Responses API traffic from Codex (CLI and VS Code extension) to any provider. It keeps each client's protocol stable while letting you choose free, paid, or local models through the same proxy and Admin UI.
 
@@ -55,6 +56,7 @@ Free Claude Code routes Anthropic Messages API traffic from Claude Code (CLI and
 ## What You Get
 
 - Windows quick-start for local Ollama usage: [OLLAMA_WINDOWS_SETUP.md](OLLAMA_WINDOWS_SETUP.md)
+- Ubuntu Linux setup guide: [docs/LINUX_SETUP_UBUNTU.md](docs/LINUX_SETUP_UBUNTU.md)
 - Quick tutorial for working with Claude Code agents: [CLAUDE_CODE_AGENTS_TUTORIAL.md](CLAUDE_CODE_AGENTS_TUTORIAL.md)
 
 - Drop-in proxy for Claude Code's Anthropic API calls (`/v1/messages`, `/v1/models`).
@@ -72,6 +74,8 @@ Free Claude Code routes Anthropic Messages API traffic from Claude Code (CLI and
 - Local **Admin UI** at `/admin` to edit supported proxy settings, validate changes, and check providers (loopback access only).
 
 ## Quick Start
+
+Free Claude Code is designed to run on Linux, macOS, and Windows. The Linux/macOS install path uses the shell installer, while Windows uses PowerShell.
 
 ### 1. Install/Update The Proxy
 
@@ -106,6 +110,8 @@ irm "https://raw.githubusercontent.com/Alishahryar1/free-claude-code/main/script
 Review [scripts/uninstall.sh](https://github.com/Alishahryar1/free-claude-code/blob/main/scripts/uninstall.sh) and [scripts/uninstall.ps1](https://github.com/Alishahryar1/free-claude-code/blob/main/scripts/uninstall.ps1). They remove the FCC uv tool and always delete `~/.fcc/`. Stop any running `fcc-server`, `fcc-claude`, `fcc-codex`, `fcc-init`, or `free-claude-code` process before uninstalling.
 
 ### 2. Start The Proxy
+
+On Linux or macOS, start the proxy with:
 
 ```bash
 fcc-server
