@@ -1,4 +1,4 @@
-z# Best Practices for Claude Code Agents
+# Best Practices for Claude Code Agents
 
 This repository already includes agent guidance in [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md). Claude Code works best when you give it clear context, tight scope, and a verification step.
 
@@ -190,7 +190,41 @@ Follow-up:
 Add a regression test or an explicit validation step so this does not break again.
 ```
 
-## 9. Recommended prompt template
+## 9. Write good code comments
+
+Comments should explain why something exists, not just restate the code.
+
+Good comments:
+
+```python
+# Keep the proxy on localhost to avoid exposing the admin UI externally.
+```
+
+```python
+# This path is intentionally limited to Windows because the launcher uses batch semantics.
+```
+
+Avoid comments like:
+
+```python
+# Increment i by 1
+```
+
+```python
+# This function does something
+```
+
+When asking an agent to add comments, be specific:
+
+```text
+Add concise comments only where the intent is not obvious from the code.
+```
+
+```text
+Do not add redundant comments; explain the rationale or the non-obvious constraint.
+```
+
+## 10. Recommended prompt template
 
 Use this when you want predictable results:
 
@@ -202,7 +236,7 @@ In this repo, implement the following change:
 - output: [summary, diff, or next steps]
 ```
 
-## 10. Best practices summary
+## 11. Best practices summary
 
 - Keep prompts specific and scoped.
 - Ask for root cause analysis before making fixes.
